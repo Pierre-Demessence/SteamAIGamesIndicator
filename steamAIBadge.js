@@ -46,13 +46,7 @@
         style.id = `${BADGE_CLASS}-styles`;
         style.textContent = `
             .${BADGE_CLASS} {
-                background: #c62828;
-                color: white;
-                padding: 2px 6px;
-                border-radius: 3px;
-                font-size: 11px;
-                font-weight: 600;
-                z-index: 10;
+                background: #ff6b6b;
             }
         `;
         document.head.appendChild(style);
@@ -110,8 +104,17 @@
 
     function createBadge() {
         const badge = document.createElement('span');
-        badge.className = BADGE_CLASS;
-        badge.textContent = '⚠️ Uses AI';
+        badge.classList.add(BADGE_CLASS);
+        badge.classList.add('_2gxv9cF-4n9wq4yxruOTNl');
+
+        // Warning triangle SVG icon (matching Steam's badge icon style)
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.classList.add("_3LecBjgbnwvS6bCFqxs6SC");
+        svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
+
+        badge.appendChild(svg);
+        badge.appendChild(document.createTextNode('Uses AI'));
         return badge;
     }
 
