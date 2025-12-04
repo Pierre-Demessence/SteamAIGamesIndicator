@@ -28,7 +28,10 @@
         tileContainer: '._3r4Ny9tQdQZc50XDM5B2q2',
         decorators: '.CapsuleDecorators',
         // Tiles that use ds_flag badges (spotlight, main capsule, etc.)
-        dsFlaggedTile: '.ds_flagged'
+        dsFlaggedTile: '.ds_flagged',
+        // Tab items (upcoming, top sellers lists, etc.)
+        tabItem: '.tab_item',
+        tabItemCap: '.tab_item_cap'
     };
 
     // State
@@ -53,6 +56,24 @@
                 background: linear-gradient(135deg, #ff6b6b 0%, #ff6b6b 100%);
                 top: 52px;
                 padding-left: 4px;
+            }
+            /* Tab item badge */
+            .tab_item {
+                position: relative;
+            }
+            .tab_item > .${BADGE_CLASS} {
+                position: absolute;
+                top: 3px;
+                left: 3px;
+                font-size: 11px;
+                padding: 2px 4px;
+                border-radius: 2px;
+                color: #111;
+                z-index: 10;
+                line-height: 1;
+                pointer-events: none;
+                box-shadow: 0 0 10px rgba(0, 0, 0, .9);
+                text-transform: uppercase;
             }
         `;
         document.head.appendChild(style);
@@ -141,6 +162,13 @@
         return badge;
     }
 
+    function createTabItemBadge() {
+        const badge = document.createElement('span');
+        badge.classList.add(BADGE_CLASS);
+        badge.textContent = 'USES AI';
+        return badge;
+    }
+
     function addBadgeToTile(tile) {
         if (tile.querySelector(`.${BADGE_CLASS}`)) return;
 
@@ -155,6 +183,13 @@
         const dsFlaggedTile = tile.closest(SELECTORS.dsFlaggedTile) ?? tile;
         if (dsFlaggedTile.classList.contains('ds_flagged')) {
             dsFlaggedTile.appendChild(createSpotlightBadge());
+            return;
+        }
+
+        // Check for tab_item tiles (upcoming, top sellers, etc.)
+        const tabItem = tile.closest(SELECTORS.tabItem) ?? tile;
+        if (tabItem.classList.contains('tab_item')) {
+            tabItem.appendChild(createTabItemBadge());
             return;
         }
     }
@@ -214,9 +249,10 @@
 
     function processAllTiles() {
         document.querySelectorAll(SELECTORS.gameLink).forEach(link => {
-            // Try modern tile container first, then ds_flagged tile, then fallback to link
+            // Try modern tile container first, then ds_flagged tile, then tab_item, then fallback to link
             const tile = link.closest(SELECTORS.tileContainer)
                 ?? link.closest(SELECTORS.dsFlaggedTile)
+                ?? link.closest(SELECTORS.tabItem)
                 ?? link;
             processTile(tile);
         });
