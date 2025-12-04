@@ -27,7 +27,8 @@
         gameLink: "a[href*='/app/']",
         tileContainer: '._3r4Ny9tQdQZc50XDM5B2q2',
         decorators: '.CapsuleDecorators',
-        imageCtn: '.CapsuleImageCtn'
+        // Tiles that use ds_flag badges (spotlight, main capsule, etc.)
+        dsFlaggedTile: '.ds_flagged'
     };
 
     // State
@@ -47,6 +48,11 @@
         style.textContent = `
             .${BADGE_CLASS} {
                 background: #ff6b6b;
+            }
+            .ds_flag.${BADGE_CLASS} {
+                background: linear-gradient(135deg, #ff6b6b 0%, #ff6b6b 100%);
+                top: 52px;
+                padding-left: 4px;
             }
         `;
         document.head.appendChild(style);
@@ -110,7 +116,7 @@
         // Warning triangle SVG icon (matching Steam's badge icon style)
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
-        svg.classList.add("_3LecBjgbnwvS6bCFqxs6SC");
+        svg.classList.add('_3LecBjgbnwvS6bCFqxs6SC');
         svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
 
         badge.appendChild(svg);
@@ -118,15 +124,39 @@
         return badge;
     }
 
-    function addBadgeToTile(tile) {
-        // Only add badge where CapsuleDecorators exists (same place as "In Library" / "On Wishlist")
-        const container = tile.querySelector(SELECTORS.decorators);
-        if (!container) return;
+    function createSpotlightBadge() {
+        const badge = document.createElement('div');
+        badge.classList.add('ds_flag', 'ds_wishlist_flag', BADGE_CLASS);
 
+        // Warning triangle SVG icon
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.classList.add('_3LecBjgbnwvS6bCFqxs6SC');
+        svg.style.height = '10px';
+        svg.style.marginRight = '4px';
+        svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
+
+        badge.appendChild(svg);
+        badge.appendChild(document.createTextNode('USES AI\u00a0\u00a0'));
+        return badge;
+    }
+
+    function addBadgeToTile(tile) {
         if (tile.querySelector(`.${BADGE_CLASS}`)) return;
 
-        const badge = createBadge();
-        container.appendChild(badge);
+        // Check for CapsuleDecorators (modern tiles)
+        const decorators = tile.querySelector(SELECTORS.decorators);
+        if (decorators) {
+            decorators.appendChild(createBadge());
+            return;
+        }
+
+        // Check for ds_flagged tiles (spotlight, main capsule, etc.)
+        const dsFlaggedTile = tile.closest(SELECTORS.dsFlaggedTile) ?? tile;
+        if (dsFlaggedTile.classList.contains('ds_flagged')) {
+            dsFlaggedTile.appendChild(createSpotlightBadge());
+            return;
+        }
     }
 
     function processTile(tile) {
@@ -184,7 +214,10 @@
 
     function processAllTiles() {
         document.querySelectorAll(SELECTORS.gameLink).forEach(link => {
-            const tile = link.closest(SELECTORS.tileContainer) ?? link;
+            // Try modern tile container first, then ds_flagged tile, then fallback to link
+            const tile = link.closest(SELECTORS.tileContainer)
+                ?? link.closest(SELECTORS.dsFlaggedTile)
+                ?? link;
             processTile(tile);
         });
 
