@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Banner
-// @version      1.0
+// @version      1.1
 // @description  Add an "AI Generated Content Disclosure" banner at the top of Steam game pages.
 // @author       Pierre Demessence
 // @match        https://store.steampowered.com/app/*
@@ -11,87 +11,143 @@
 (function () {
     'use strict';
 
-    const LABEL_ID = 'tm-ai-label';
+    // Constants
+    const BANNER_ID = 'tm-ai-banner';
+    const SELECTORS = {
+        contentDescriptors: '#game_area_content_descriptors',
+        title: '#appHubAppName, .apphub_AppName',
+        fallbackContainer: '#page_content, .responsive_page_template_content'
+    };
+    const DEBOUNCE_DELAY = 300;
 
-    function addLabel(disclosureHtml) {
-        if (document.getElementById(LABEL_ID)) return;
+    // Inject styles once
+    function injectStyles() {
+        if (document.getElementById(`${BANNER_ID}-styles`)) return;
 
-        const bar = document.createElement('div');
-        bar.id = LABEL_ID;
-        bar.style.background = '#ff6b6b';
-        bar.style.color = '#fff';
-        bar.style.padding = '12px 16px';
-        bar.style.fontSize = '15px';
-        bar.style.fontWeight = '600';
-        bar.style.textAlign = 'center';
-        bar.style.borderRadius = '6px';
-        bar.style.marginBottom = '10px';
-        bar.style.boxShadow = '0 2px 6px rgba(0,0,0,0.2)';
-        bar.style.zIndex = '9999';
-
-        bar.innerHTML = `
-        <div style="font-size:18px; margin-bottom:6px;">⚠️ AI Generated Content Disclosure</div>
-        <div style="font-weight:400;">${disclosureHtml}</div>
-    `;
-
-        const title = document.querySelector('#appHubAppName, .apphub_AppName');
-        if (title && title.parentElement) {
-            title.parentElement.prepend(bar);
-        } else {
-            (document.querySelector('#page_content, .responsive_page_template_content') || document.body).prepend(bar);
-        }
+        const style = document.createElement('style');
+        style.id = `${BANNER_ID}-styles`;
+        style.textContent = `
+            #${BANNER_ID} {
+                background: #ff6b6b;
+                color: #fff;
+                padding: 12px 16px;
+                font-size: 15px;
+                font-weight: 600;
+                text-align: center;
+                border-radius: 6px;
+                margin-bottom: 10px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+                z-index: 9999;
+            }
+            #${BANNER_ID} .ai-banner-header {
+                font-size: 18px;
+                margin-bottom: 6px;
+            }
+            #${BANNER_ID} .ai-banner-description {
+                font-weight: 400;
+            }
+        `;
+        document.head.appendChild(style);
     }
 
-    function removeLabel() {
-        const el = document.getElementById(LABEL_ID);
-        if (el) el.remove();
+    function addBanner(descriptionText) {
+        if (document.getElementById(BANNER_ID)) return;
+
+        const banner = document.createElement('div');
+        banner.id = BANNER_ID;
+
+        const header = document.createElement('div');
+        header.className = 'ai-banner-header';
+        header.textContent = '⚠️ AI Generated Content Disclosure';
+
+        const description = document.createElement('div');
+        description.className = 'ai-banner-description';
+        description.textContent = descriptionText;
+
+        banner.appendChild(header);
+        banner.appendChild(description);
+
+        const title = document.querySelector(SELECTORS.title);
+        const container = title?.parentElement
+            ?? document.querySelector(SELECTORS.fallbackContainer)
+            ?? document.body;
+        container.prepend(banner);
     }
 
-    // Check page for the disclosure text
+    function removeBanner() {
+        document.getElementById(BANNER_ID)?.remove();
+    }
+
     function checkPage() {
-        try {
-            const block = document.querySelector('#game_area_content_descriptors');
-            if (!block) {
-                removeLabel();
-                return;
-            }
-
-            const header = block.querySelector('h2');
-            if (!header || !/ai generated content disclosure/i.test(header.innerText)) {
-                removeLabel();
-                return;
-            }
-
-            const paragraphs = Array.from(block.querySelectorAll('p'));
-            const description = paragraphs.map(p => p.innerHTML.trim())[1];
-
-            addLabel(description);
-
-        } catch (e) {
-            console.error('tm-ai-label check failed', e);
+        const block = document.querySelector(SELECTORS.contentDescriptors);
+        if (!block) {
+            removeBanner();
+            return;
         }
+
+        const header = block.querySelector('h2');
+        if (!header || !/ai generated content disclosure/i.test(header.textContent)) {
+            removeBanner();
+            return;
+        }
+
+        const paragraphs = block.querySelectorAll('p');
+        const descriptionEl = paragraphs[1];
+        if (!descriptionEl) {
+            removeBanner();
+            return;
+        }
+
+        addBanner(descriptionEl.textContent.trim());
     }
 
     // Debounce helper
     function debounce(fn, wait) {
-        let t;
-        return function (...a) {
-            clearTimeout(t);
-            t = setTimeout(() => fn.apply(this, a), wait);
+        let timeoutId;
+        return function (...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => fn.apply(this, args), wait);
         };
     }
 
-    // Run once on load
+    // Patch history methods to dispatch custom events for SPA navigation
+    function patchHistoryMethods() {
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        history.pushState = function (...args) {
+            originalPushState.apply(this, args);
+            window.dispatchEvent(new Event('pushstate'));
+        };
+
+        history.replaceState = function (...args) {
+            originalReplaceState.apply(this, args);
+            window.dispatchEvent(new Event('replacestate'));
+        };
+    }
+
+    // Cleanup function
+    function cleanup() {
+        observer.disconnect();
+        removeBanner();
+    }
+
+    // Initialize
+    injectStyles();
+    patchHistoryMethods();
     checkPage();
 
     // Observe DOM changes (useful for Steam's dynamic navigation)
-    const observer = new MutationObserver(debounce(() => checkPage(), 300));
-    observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+    const debouncedCheck = debounce(checkPage, DEBOUNCE_DELAY);
+    const observer = new MutationObserver(debouncedCheck);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    // Also re-check on history navigation (Steam often uses pushState)
-    window.addEventListener('popstate', debounce(checkPage, 200));
-    // Some sites fire custom events on navigation; listen to these generically
-    window.addEventListener('pushstate', debounce(checkPage, 200));
-    window.addEventListener('replacestate', debounce(checkPage, 200));
+    // Listen for navigation events
+    window.addEventListener('popstate', debouncedCheck);
+    window.addEventListener('pushstate', debouncedCheck);
+    window.addEventListener('replacestate', debouncedCheck);
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', cleanup);
 
 })();
