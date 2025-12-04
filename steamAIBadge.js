@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Badge via Background Fetch
-// @version      1.0
+// @version      1.1
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @match        https://store.steampowered.com/*
@@ -64,10 +64,9 @@
             .tab_item > .${BADGE_CLASS} {
                 position: absolute;
                 top: 3px;
-                left: 3px;
+                left: 0px;
                 font-size: 11px;
-                padding: 2px 4px;
-                border-radius: 2px;
+                padding: 3px 14px 3px 10px;
                 color: #111;
                 z-index: 10;
                 line-height: 1;
