@@ -32,13 +32,14 @@ Adds "Uses AI" badges to game tiles throughout the Steam store.
 
 ## How It Works
 
-**Steam AI Banner** checks individual game pages for the "AI Generated Content Disclosure" section and displays the disclosure text in a visible banner.
+**Steam AI Banner** checks individual game pages for the "AI Generated Content Disclosure" section and displays the disclosure text in a visible banner at the top of the page.
 
 **Steam AI Badge** uses a combination of:
+
 1. A pre-built list of known AI games (`appids.json`) fetched from this repository
 2. Background fetching of individual game pages for games not in the list
 
-The badge script caches the known AI games list locally for 24 hours to minimize network requests.
+The pre-built list is sourced from [SteamDB](https://steamdb.info/tag/1368160/?sort=id_asc).
 
 ## Contributing
 
