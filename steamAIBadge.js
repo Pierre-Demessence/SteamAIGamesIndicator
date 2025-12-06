@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         Steam AI Badge via Background Fetch
-// @version      1.1
+// @name         Steam AI Badge
+// @version      1.3
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @match        https://store.steampowered.com/*
@@ -34,7 +34,9 @@
         tabItemCap: '.tab_item_cap',
         // Search results
         searchResultRow: '.search_result_row',
-        searchCapsule: '.search_capsule'
+        searchCapsule: '.search_capsule',
+        // Wishlist items (panel with checkbox input containing data-appid)
+        wishlistItem: '[data-appid]'
     };
 
     // State
@@ -60,13 +62,14 @@
                 top: 52px;
                 padding-left: 4px;
             }
-            /* Tab item and search result badge */
+            /* Tab item, search result, and wishlist badge */
             .tab_item,
             .search_result_row {
                 position: relative;
             }
             .tab_item > .${BADGE_CLASS},
-            .search_result_row > .${BADGE_CLASS} {
+            .search_result_row > .${BADGE_CLASS},
+            .${BADGE_CLASS}.wishlist-badge {
                 position: absolute;
                 top: 3px;
                 left: 0px;
@@ -126,8 +129,24 @@
     }
 
     function extractAppId(node) {
+        // Check for wishlist item with data-appid on input
+        const appIdInput = node.querySelector('input[data-appid]');
+        if (appIdInput) {
+            return appIdInput.dataset.appid;
+        }
+
+        // Check for data-ds-appid attribute (used on various elements)
+        if (node.dataset?.dsAppid) {
+            return node.dataset.dsAppid;
+        }
+
         const link = node.tagName === 'A' ? node : node.querySelector(SELECTORS.gameLink);
         if (!link) return null;
+
+        // Check for data-ds-appid on link
+        if (link.dataset?.dsAppid) {
+            return link.dataset.dsAppid;
+        }
 
         const match = link.href.match(/\/app\/(\d+)/);
         return match ? match[1] : null;
@@ -180,6 +199,13 @@
         return badge;
     }
 
+    function createWishlistBadge() {
+        const badge = document.createElement('span');
+        badge.classList.add(BADGE_CLASS, 'wishlist-badge');
+        badge.textContent = 'USES AI';
+        return badge;
+    }
+
     function addBadgeToTile(tile) {
         if (tile.querySelector(`.${BADGE_CLASS}`)) return;
 
@@ -208,6 +234,18 @@
         const searchRow = tile.closest(SELECTORS.searchResultRow) ?? tile;
         if (searchRow.classList.contains('search_result_row')) {
             searchRow.appendChild(createSearchResultBadge());
+            return;
+        }
+
+        // Check for wishlist items (find the image container)
+        const wishlistInput = tile.querySelector('input[data-appid]');
+        if (wishlistInput) {
+            // Find the image container (parent of the img element)
+            const imgContainer = tile.querySelector('img')?.parentElement;
+            if (imgContainer) {
+                imgContainer.style.position = 'relative';
+                imgContainer.appendChild(createWishlistBadge());
+            }
             return;
         }
     }
@@ -266,6 +304,7 @@
     }
 
     function processAllTiles() {
+        // Process regular game links
         document.querySelectorAll(SELECTORS.gameLink).forEach(link => {
             // Try modern tile container first, then ds_flagged tile, then tab_item, then search result, then fallback to link
             const tile = link.closest(SELECTORS.tileContainer)
@@ -276,9 +315,29 @@
             processTile(tile);
         });
 
+        // Process wishlist items (they have input[data-appid] elements)
+        document.querySelectorAll('input[data-appid]').forEach(input => {
+            // Find the closest container - try multiple selectors since class names are dynamic
+            const panel = input.closest('[class*="Panel"]')
+                ?? input.closest('[data-index]')
+                ?? input.parentElement?.parentElement;
+            if (panel) {
+                processTile(panel);
+            }
+        });
+
         if (fetchQueue.length > 0 && !queueRunning) {
             runFetchQueue();
         }
+    }
+
+    // Debounce helper
+    function debounce(fn, wait) {
+        let timeoutId;
+        return function (...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => fn.apply(this, args), wait);
+        };
     }
 
     // Initialize
@@ -289,8 +348,9 @@
         // Initial scan
         processAllTiles();
 
-        // Observe page for dynamic loading
-        const observer = new MutationObserver(processAllTiles);
+        // Observe page for dynamic loading (debounced to avoid excessive calls)
+        const debouncedProcess = debounce(processAllTiles, 200);
+        const observer = new MutationObserver(debouncedProcess);
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
