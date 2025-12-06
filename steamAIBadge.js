@@ -31,7 +31,10 @@
         dsFlaggedTile: '.ds_flagged',
         // Tab items (upcoming, top sellers lists, etc.)
         tabItem: '.tab_item',
-        tabItemCap: '.tab_item_cap'
+        tabItemCap: '.tab_item_cap',
+        // Search results
+        searchResultRow: '.search_result_row',
+        searchCapsule: '.search_capsule'
     };
 
     // State
@@ -57,11 +60,13 @@
                 top: 52px;
                 padding-left: 4px;
             }
-            /* Tab item badge */
-            .tab_item {
+            /* Tab item and search result badge */
+            .tab_item,
+            .search_result_row {
                 position: relative;
             }
-            .tab_item > .${BADGE_CLASS} {
+            .tab_item > .${BADGE_CLASS},
+            .search_result_row > .${BADGE_CLASS} {
                 position: absolute;
                 top: 3px;
                 left: 0px;
@@ -168,6 +173,13 @@
         return badge;
     }
 
+    function createSearchResultBadge() {
+        const badge = document.createElement('span');
+        badge.classList.add(BADGE_CLASS);
+        badge.textContent = 'USES AI';
+        return badge;
+    }
+
     function addBadgeToTile(tile) {
         if (tile.querySelector(`.${BADGE_CLASS}`)) return;
 
@@ -189,6 +201,13 @@
         const tabItem = tile.closest(SELECTORS.tabItem) ?? tile;
         if (tabItem.classList.contains('tab_item')) {
             tabItem.appendChild(createTabItemBadge());
+            return;
+        }
+
+        // Check for search result rows
+        const searchRow = tile.closest(SELECTORS.searchResultRow) ?? tile;
+        if (searchRow.classList.contains('search_result_row')) {
+            searchRow.appendChild(createSearchResultBadge());
             return;
         }
     }
@@ -248,10 +267,11 @@
 
     function processAllTiles() {
         document.querySelectorAll(SELECTORS.gameLink).forEach(link => {
-            // Try modern tile container first, then ds_flagged tile, then tab_item, then fallback to link
+            // Try modern tile container first, then ds_flagged tile, then tab_item, then search result, then fallback to link
             const tile = link.closest(SELECTORS.tileContainer)
                 ?? link.closest(SELECTORS.dsFlaggedTile)
                 ?? link.closest(SELECTORS.tabItem)
+                ?? link.closest(SELECTORS.searchResultRow)
                 ?? link;
             processTile(tile);
         });
