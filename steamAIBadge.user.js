@@ -23,6 +23,12 @@
     const CACHE_KEY = 'aiAppIds';
     const CACHE_TIMESTAMP_KEY = 'aiAppIdsCacheTime';
     const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+    // Per-app fetch-result cache, so the same store pages aren't re-fetched across navigations.
+    // Positives almost never change; negatives can (a game may add disclosure later), so they expire sooner.
+    const FETCH_CACHE_KEY = 'aiFetchCache';
+    const FETCH_CACHE_TTL_POSITIVE = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const FETCH_CACHE_TTL_NEGATIVE = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const FETCH_CACHE_SAVE_DEBOUNCE = 1500;
     const FETCH_DELAY = 1000;
     const BADGE_CLASS = 'tm-ai-badge';
 
@@ -49,6 +55,8 @@
     const fetchQueue = [];
     const fetchedAppIds = new Set();
     let queueRunning = false;
+    const fetchCache = new Map(); // appId -> { ai: boolean, ts: number }
+    let saveTimer = null;
 
     // Inject styles once
     function injectStyles() {
@@ -129,6 +137,62 @@
                 }
             });
         });
+    }
+
+    function isFreshCacheEntry(entry) {
+        const ttl = entry.ai ? FETCH_CACHE_TTL_POSITIVE : FETCH_CACHE_TTL_NEGATIVE;
+        return Date.now() - entry.ts < ttl;
+    }
+
+    function getFreshCacheEntry(appId) {
+        const entry = fetchCache.get(appId);
+        if (!entry) return null;
+        if (!isFreshCacheEntry(entry)) {
+            fetchCache.delete(appId);
+            return null;
+        }
+        return entry;
+    }
+
+    // Load persisted fetch results, dropping expired entries; fresh positives become "known".
+    async function loadFetchCache() {
+        const stored = await GM_getValue(FETCH_CACHE_KEY, null);
+        if (!stored || typeof stored !== 'object') return;
+
+        let expired = 0;
+        for (const [appId, entry] of Object.entries(stored)) {
+            if (entry && typeof entry.ts === 'number' && typeof entry.ai === 'boolean' && isFreshCacheEntry(entry)) {
+                fetchCache.set(appId, entry);
+                if (entry.ai) knownAiAppIds.add(appId);
+            } else {
+                expired++;
+            }
+        }
+
+        if (expired > 0) scheduleCacheSave(); // persist the pruned map
+        console.log(`[Steam AI Badge] Loaded ${fetchCache.size} cached fetch results (${expired} expired)`);
+    }
+
+    function saveFetchCache() {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        GM_setValue(FETCH_CACHE_KEY, Object.fromEntries(fetchCache));
+    }
+
+    function scheduleCacheSave() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveFetchCache, FETCH_CACHE_SAVE_DEBOUNCE);
+    }
+
+    function recordFetchResult(appId, ai) {
+        fetchCache.set(appId, { ai, ts: Date.now() });
+        // Positives are rare and valuable, so persist immediately (GM_setValue isn't awaited on
+        // unload); negatives are frequent, so batch them with a debounced save.
+        if (ai) {
+            saveFetchCache();
+        } else {
+            scheduleCacheSave();
+        }
     }
 
     function extractAppId(node) {
@@ -272,6 +336,13 @@
             return;
         }
 
+        // Reuse a still-fresh fetch result instead of re-fetching the store page
+        const cached = getFreshCacheEntry(appId);
+        if (cached) {
+            if (cached.ai) addBadgeToTile(tile);
+            return;
+        }
+
         // Queue for fetching if not already fetched/queued
         if (!fetchedAppIds.has(appId)) {
             fetchedAppIds.add(appId);
@@ -289,9 +360,17 @@
 
         GM_xmlhttpRequest({
             method: 'GET',
-            url: `https://store.steampowered.com/app/${appId}/`,
+            url: `https://store.steampowered.com/app/${appId}/?l=english`,
             onload: (res) => {
                 const hasAI = res.status === 200 && /AI Generated Content Disclosure/i.test(res.responseText);
+                // Only cache a NEGATIVE when a real store page actually loaded: id="appHubAppName"
+                // is present on app pages but not on age gates, login/region walls, or error pages,
+                // so a transient non-page can't stick as a false negative for the whole TTL.
+                const isRealStorePage = res.status === 200 && /id="appHubAppName"/.test(res.responseText);
+
+                if (hasAI || isRealStorePage) {
+                    recordFetchResult(appId, hasAI);
+                }
 
                 if (hasAI) {
                     knownAiAppIds.add(appId);
@@ -347,6 +426,12 @@
     async function init() {
         injectStyles();
         await loadKnownAppIds();
+        await loadFetchCache();
+
+        // Flush any pending (debounced) cache write before the page goes away
+        window.addEventListener('pagehide', () => {
+            if (saveTimer) saveFetchCache();
+        });
 
         // Initial scan
         processAllTiles();
