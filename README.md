@@ -27,8 +27,8 @@ Adds "Uses AI" badges to game tiles throughout the Steam store.
    - [Greasemonkey](https://www.greasespot.net/) (Firefox)
 
 2. Install the scripts:
-   - [Steam AI Banner](https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/main/steamAIBanner.js)
-   - [Steam AI Badge](https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/main/steamAIBadge.js)
+   - [Steam AI Banner](https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/main/steamAIBanner.user.js)
+   - [Steam AI Badge](https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/main/steamAIBadge.user.js)
 
 ## How It Works
 
