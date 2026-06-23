@@ -1,13 +1,12 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      1.3
+// @version      1.4
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
 // @updateURL    https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/refs/heads/main/steamAIBadge.user.js
 // @downloadURL  https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/refs/heads/main/steamAIBadge.user.js
 // @match        https://store.steampowered.com/*
-// @exclude      https://store.steampowered.com/app/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -34,23 +33,17 @@
 
     const SELECTORS = {
         gameLink: "a[href*='/app/']",
-        tileContainer: '._3r4Ny9tQdQZc50XDM5B2q2',
         decorators: '.CapsuleDecorators',
-        // Tiles that use ds_flag badges (spotlight, main capsule, etc.)
-        dsFlaggedTile: '.ds_flagged',
-        // Tab items (upcoming, top sellers lists, etc.)
+        dsFlagged: '.ds_flagged',
         tabItem: '.tab_item',
-        tabItemCap: '.tab_item_cap',
-        // Search results
         searchResultRow: '.search_result_row',
-        searchCapsule: '.search_capsule',
-        // Wishlist items (panel with checkbox input containing data-appid)
-        wishlistItem: '[data-appid]'
+        wishlistInput: 'input[data-appid]'
     };
 
     // State
     const knownAiAppIds = new Set();
     const checkedTiles = new WeakSet();
+    const badgedRoots = new WeakSet();
     const tilesByAppId = new Map();
     const fetchQueue = [];
     const fetchedAppIds = new Set();
@@ -234,11 +227,14 @@
         const badge = document.createElement('span');
         badge.classList.add(BADGE_CLASS);
         badge.classList.add('_2gxv9cF-4n9wq4yxruOTNl');
+        badge.classList.add('DCat1zs4gq0-');
 
         // Warning triangle SVG icon (matching Steam's badge icon style)
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.classList.add('_3LecBjgbnwvS6bCFqxs6SC');
+        svg.style.height = '10px';
+        svg.style.marginRight = '4px';
         svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
 
         badge.appendChild(svg);
@@ -284,73 +280,96 @@
         return badge;
     }
 
-    function addBadgeToTile(tile) {
-        if (tile.querySelector(`.${BADGE_CLASS}`)) return;
-
-        // Check for CapsuleDecorators (modern tiles)
-        const decorators = tile.querySelector(SELECTORS.decorators);
-        if (decorators) {
-            decorators.appendChild(createBadge());
-            return;
-        }
-
-        // Check for ds_flagged tiles (spotlight, main capsule, etc.)
-        const dsFlaggedTile = tile.closest(SELECTORS.dsFlaggedTile) ?? tile;
-        if (dsFlaggedTile.classList.contains('ds_flagged')) {
-            dsFlaggedTile.appendChild(createSpotlightBadge());
-            return;
-        }
-
-        // Check for tab_item tiles (upcoming, top sellers, etc.)
-        const tabItem = tile.closest(SELECTORS.tabItem) ?? tile;
-        if (tabItem.classList.contains('tab_item')) {
-            tabItem.appendChild(createTabItemBadge());
-            return;
-        }
-
-        // Check for search result rows
-        const searchRow = tile.closest(SELECTORS.searchResultRow) ?? tile;
-        if (searchRow.classList.contains('search_result_row')) {
-            searchRow.appendChild(createSearchResultBadge());
-            return;
-        }
-
-        // Check for wishlist items (find the image container)
-        const wishlistInput = tile.querySelector('input[data-appid]');
-        if (wishlistInput) {
-            // Find the image container (parent of the img element)
-            const imgContainer = tile.querySelector('img')?.parentElement;
-            if (imgContainer) {
-                imgContainer.style.position = 'relative';
-                imgContainer.appendChild(createWishlistBadge());
-            }
-            return;
+    function placeWishlistBadge(input) {
+        // The badge goes on the image container; class names are dynamic, so try a few anchors.
+        const panel = input.closest('[class*="Panel"]')
+            ?? input.closest('[data-index]')
+            ?? input.parentElement?.parentElement;
+        const imgContainer = panel?.querySelector('img')?.parentElement;
+        if (imgContainer) {
+            imgContainer.style.position = 'relative';
+            imgContainer.appendChild(createWishlistBadge());
         }
     }
 
-    function processTile(tile) {
-        if (checkedTiles.has(tile)) return;
-        checkedTiles.add(tile);
+    // One descriptor per Steam tile surface: how to find its tiles, read the app ID, and badge it.
+    // Order is priority: when surfaces overlap on one capsule (e.g. a ds_flagged spotlight wrapping a
+    // modern capsule), the earlier entry wins. Supporting a new surface is a single new entry here.
+    const TILE_TYPES = [
+        {
+            name: 'modern',
+            scan: () => document.querySelectorAll(SELECTORS.decorators),
+            getAppId: (root) => extractAppId(root.closest(SELECTORS.gameLink) ?? root.closest('[data-ds-appid]') ?? root),
+            placeBadge: (root) => root.appendChild(createBadge()),
+        },
+        {
+            name: 'spotlight',
+            scan: () => document.querySelectorAll(SELECTORS.dsFlagged),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => root.appendChild(createSpotlightBadge()),
+        },
+        {
+            name: 'tab',
+            scan: () => document.querySelectorAll(SELECTORS.tabItem),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => root.appendChild(createTabItemBadge()),
+        },
+        {
+            name: 'search',
+            scan: () => document.querySelectorAll(SELECTORS.searchResultRow),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => root.appendChild(createSearchResultBadge()),
+        },
+        {
+            name: 'wishlist',
+            scan: () => document.querySelectorAll(SELECTORS.wishlistInput),
+            getAppId: (root) => root.dataset.appid,
+            placeBadge: (root) => placeWishlistBadge(root),
+        },
+    ];
 
-        const appId = extractAppId(tile);
+    // Badge a tile at most once. Overlapping surfaces expose separate, DOM-nested anchor elements for
+    // the same game (a ds_flagged wrapper + the modern capsule's decorators); if an overlapping root
+    // for this app is already badged, skip so the higher-priority surface wins and we never double-badge.
+    // Only DOM-overlapping roots are collapsed: two DOM-disjoint surfaces for one game stay distinct
+    // (so the same game in a carousel and a search row each get badged).
+    function badge(type, appId, root) {
+        if (badgedRoots.has(root)) return;
+        const siblings = tilesByAppId.get(appId);
+        if (siblings) {
+            for (const { root: other } of siblings) {
+                if (other !== root && badgedRoots.has(other) && (other.contains(root) || root.contains(other))) {
+                    return;
+                }
+            }
+        }
+        badgedRoots.add(root);
+        type.placeBadge(root);
+    }
+
+    function processRoot(type, root) {
+        if (checkedTiles.has(root)) return;
+        checkedTiles.add(root);
+
+        const appId = type.getAppId(root);
         if (!appId) return;
 
-        // Track this tile for this app ID
+        // Track this tile so a later fetch result can back-fill the right badge
         if (!tilesByAppId.has(appId)) {
             tilesByAppId.set(appId, []);
         }
-        tilesByAppId.get(appId).push(tile);
+        tilesByAppId.get(appId).push({ type, root });
 
         // If we know it's an AI app from our pre-loaded list, badge immediately
         if (knownAiAppIds.has(appId)) {
-            addBadgeToTile(tile);
+            badge(type, appId, root);
             return;
         }
 
         // Reuse a still-fresh fetch result instead of re-fetching the store page
         const cached = getFreshCacheEntry(appId);
         if (cached) {
-            if (cached.ai) addBadgeToTile(tile);
+            if (cached.ai) badge(type, appId, root);
             return;
         }
 
@@ -391,7 +410,7 @@
 
                 if (hasAI) {
                     knownAiAppIds.add(appId);
-                    tilesByAppId.get(appId)?.forEach(addBadgeToTile);
+                    tilesByAppId.get(appId)?.forEach(({ type, root }) => badge(type, appId, root));
                 }
 
                 setTimeout(runFetchQueue, FETCH_DELAY);
@@ -403,27 +422,11 @@
     }
 
     function processAllTiles() {
-        // Process regular game links
-        document.querySelectorAll(SELECTORS.gameLink).forEach(link => {
-            // Try modern tile container first, then ds_flagged tile, then tab_item, then search result, then fallback to link
-            const tile = link.closest(SELECTORS.tileContainer)
-                ?? link.closest(SELECTORS.dsFlaggedTile)
-                ?? link.closest(SELECTORS.tabItem)
-                ?? link.closest(SELECTORS.searchResultRow)
-                ?? link;
-            processTile(tile);
-        });
-
-        // Process wishlist items (they have input[data-appid] elements)
-        document.querySelectorAll('input[data-appid]').forEach(input => {
-            // Find the closest container - try multiple selectors since class names are dynamic
-            const panel = input.closest('[class*="Panel"]')
-                ?? input.closest('[data-index]')
-                ?? input.parentElement?.parentElement;
-            if (panel) {
-                processTile(panel);
+        for (const type of TILE_TYPES) {
+            for (const root of type.scan()) {
+                processRoot(type, root);
             }
-        });
+        }
 
         if (fetchQueue.length > 0 && !queueRunning) {
             runFetchQueue();
