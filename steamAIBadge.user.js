@@ -57,6 +57,7 @@
     let queueRunning = false;
     const fetchCache = new Map(); // appId -> { ai: boolean, ts: number }
     let saveTimer = null;
+    let maxKnownAppId = 0; // highest app ID in the known-AI list; the list is complete up to here
 
     // Inject styles once
     function injectStyles() {
@@ -97,6 +98,16 @@
         document.head.appendChild(style);
     }
 
+    // Register known-AI app IDs and advance the "list is complete up to here" frontier.
+    function registerKnownAppIds(ids) {
+        for (const id of ids) {
+            const idStr = String(id);
+            knownAiAppIds.add(idStr);
+            const n = Number(idStr);
+            if (n > maxKnownAppId) maxKnownAppId = n;
+        }
+    }
+
     // Load known AI app IDs from remote JSON (with caching)
     async function loadKnownAppIds() {
         const cachedTime = await GM_getValue(CACHE_TIMESTAMP_KEY, 0);
@@ -106,8 +117,8 @@
         if (now - cachedTime < CACHE_TTL) {
             const cached = await GM_getValue(CACHE_KEY, null);
             if (cached) {
-                cached.forEach(id => knownAiAppIds.add(String(id)));
-                console.log(`[Steam AI Badge] Loaded ${knownAiAppIds.size} app IDs from cache`);
+                registerKnownAppIds(cached);
+                console.log(`[Steam AI Badge] Loaded ${knownAiAppIds.size} app IDs from cache (max ${maxKnownAppId})`);
                 return;
             }
         }
@@ -121,10 +132,10 @@
                     if (res.status === 200) {
                         try {
                             const appIds = JSON.parse(res.responseText);
-                            appIds.forEach(id => knownAiAppIds.add(String(id)));
+                            registerKnownAppIds(appIds);
                             await GM_setValue(CACHE_KEY, appIds);
                             await GM_setValue(CACHE_TIMESTAMP_KEY, now);
-                            console.log(`[Steam AI Badge] Fetched and cached ${knownAiAppIds.size} app IDs`);
+                            console.log(`[Steam AI Badge] Fetched and cached ${knownAiAppIds.size} app IDs (max ${maxKnownAppId})`);
                         } catch (e) {
                             console.error('[Steam AI Badge] Failed to parse app IDs:', e);
                         }
@@ -340,6 +351,12 @@
         const cached = getFreshCacheEntry(appId);
         if (cached) {
             if (cached.ai) addBadgeToTile(tile);
+            return;
+        }
+
+        // The known-AI list is complete up to its highest app ID, so an app at or below that
+        // which isn't in the list is known to NOT use AI — only newer (higher) app IDs are unknown.
+        if (maxKnownAppId > 0 && Number(appId) <= maxKnownAppId) {
             return;
         }
 
