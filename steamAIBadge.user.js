@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      1.4
+// @version      1.5
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
@@ -88,6 +88,31 @@
                 text-transform: uppercase;
             }
         `;
+
+        // The personal calendar is a separate React app that doesn't define the hashed
+        // decorator classes the modern badge borrows for styling, so the badge lands in
+        // the capsule's decorator overlay unstyled. Style it self-contained, only here,
+        // to avoid restyling the modern badge on the regular store surface.
+        if (location.pathname.startsWith('/personalcalendar')) {
+            style.textContent += `
+                .CapsuleDecorators > .${BADGE_CLASS} {
+                    display: inline-flex;
+                    align-items: center;
+                    background: #ff6b6b;
+                    color: #111;
+                    font-size: 11px;
+                    font-weight: bold;
+                    line-height: 1;
+                    padding: 3px 8px;
+                    border-radius: 3px;
+                    white-space: nowrap;
+                    text-transform: uppercase;
+                    box-shadow: 0 0 10px rgba(0, 0, 0, .9);
+                    z-index: 10;
+                }
+            `;
+        }
+
         document.head.appendChild(style);
     }
 
