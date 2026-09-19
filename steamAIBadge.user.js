@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      1.6
+// @version      1.6.2
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
@@ -59,60 +59,63 @@
 
         const style = document.createElement('style');
         style.id = `${BADGE_CLASS}-styles`;
+
+        // Shared geometry for our "USES AI" pill; each surface adds only its own
+        // positioning on top. font-weight is pinned to 400 so we never inherit a bold
+        // weight from whatever Steam container the badge lands in.
+        const pillBase = `
+                box-sizing: border-box;
+                display: flex;
+                align-items: center;
+                color: #111;
+                font-size: 11px;
+                font-weight: 400;
+                line-height: 1;
+                padding: 3px 14px 3px 10px;
+                white-space: nowrap;
+                text-transform: uppercase;
+                box-shadow: 0 0 10px #000000e6;
+        `;
+
         style.textContent = `
             .${BADGE_CLASS} {
                 background: #ff6b6b;
             }
+            /* Flagged rows and spotlights reuse Steam's collapsible ds_flag pill (icon-only
+               until the row is hovered), so we render our warning icon as a background image
+               like the native flag instead of an inline SVG (an inline SVG gets clipped when
+               collapsed). Sit in the native flag's top:12px slot, or stack 18px+5px below a
+               native "On Wishlist"/"In Library" flag when one is present. */
             .ds_flag.${BADGE_CLASS} {
-                background: linear-gradient(135deg, #ff6b6b 0%, #ff6b6b 100%);
-                top: 52px;
-                padding-left: 4px;
+                top: 12px;
+                background: url("data:image/svg+xml,%3Csvg width='11' height='11' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='%23111111' d='M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'/%3E%3C/svg%3E") no-repeat 3px 4px #ff6b6b;
             }
-            /* Tab item, search result, and wishlist badge */
-            .tab_item,
-            .search_result_row {
+            .ds_flag:not(.${BADGE_CLASS}) ~ .ds_flag.${BADGE_CLASS} {
+                top: 35px;
+            }
+            /* Tab item and wishlist badge: absolute corner overlay. */
+            .tab_item {
                 position: relative;
             }
             .tab_item > .${BADGE_CLASS},
-            .search_result_row > .${BADGE_CLASS},
             .${BADGE_CLASS}.wishlist-badge {
+                ${pillBase}
                 position: absolute;
                 top: 3px;
-                left: 0px;
-                font-size: 11px;
-                padding: 3px 14px 3px 10px;
-                color: #111;
+                left: 0;
                 z-index: 10;
-                line-height: 1;
                 pointer-events: none;
-                box-shadow: 0 0 10px rgba(0, 0, 0, .9);
-                text-transform: uppercase;
+            }
+            /* Modern capsule decorators, used on both the regular store and the personal
+               calendar. Steam's own hashed decorator classes aren't present on every
+               bundle (e.g. the calendar's separate React app), so we style our badge
+               self-contained, mirroring the native decorator flag's geometry. */
+            .CapsuleDecorators > .${BADGE_CLASS} {
+                ${pillBase}
+                height: 18px;
+                z-index: 5;
             }
         `;
-
-        // The personal calendar is a separate React app that doesn't define the hashed
-        // decorator classes the modern badge borrows for styling, so the badge lands in
-        // the capsule's decorator overlay unstyled. Style it self-contained, only here,
-        // to avoid restyling the modern badge on the regular store surface.
-        if (location.pathname.startsWith('/personalcalendar')) {
-            style.textContent += `
-                .CapsuleDecorators > .${BADGE_CLASS} {
-                    display: inline-flex;
-                    align-items: center;
-                    background: #ff6b6b;
-                    color: #111;
-                    font-size: 11px;
-                    font-weight: bold;
-                    line-height: 1;
-                    padding: 3px 8px;
-                    border-radius: 3px;
-                    white-space: nowrap;
-                    text-transform: uppercase;
-                    box-shadow: 0 0 10px rgba(0, 0, 0, .9);
-                    z-index: 10;
-                }
-            `;
-        }
 
         document.head.appendChild(style);
     }
@@ -249,21 +252,19 @@
         return match ? match[1] : null;
     }
 
-    function createBadge() {
-        const badge = document.createElement('span');
-        badge.classList.add(BADGE_CLASS);
-        badge.classList.add('_2gxv9cF-4n9wq4yxruOTNl');
-        badge.classList.add('DCat1zs4gq0-');
-
-        // Warning triangle SVG icon (matching Steam's badge icon style)
+    function createWarningIcon() {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
-        svg.classList.add('_3LecBjgbnwvS6bCFqxs6SC');
         svg.style.height = '10px';
         svg.style.marginRight = '4px';
         svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
+        return svg;
+    }
 
-        badge.appendChild(svg);
+    function createBadge() {
+        const badge = document.createElement('span');
+        badge.classList.add(BADGE_CLASS);
+        badge.appendChild(createWarningIcon());
         badge.appendChild(document.createTextNode('Uses AI'));
         return badge;
     }
@@ -271,16 +272,8 @@
     function createSpotlightBadge() {
         const badge = document.createElement('div');
         badge.classList.add('ds_flag', 'ds_wishlist_flag', BADGE_CLASS);
-
-        // Warning triangle SVG icon
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.classList.add('_3LecBjgbnwvS6bCFqxs6SC');
-        svg.style.height = '10px';
-        svg.style.marginRight = '4px';
-        svg.innerHTML = '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>';
-
-        badge.appendChild(svg);
+        // Icon comes from the .ds_flag.tm-ai-badge background image so it stays visible when
+        // Steam collapses the flag to icon-only width; an inline SVG would be clipped.
         badge.appendChild(document.createTextNode('USES AI\u00a0\u00a0'));
         return badge;
     }
@@ -288,21 +281,16 @@
     function createTabItemBadge() {
         const badge = document.createElement('span');
         badge.classList.add(BADGE_CLASS);
-        badge.textContent = 'USES AI';
-        return badge;
-    }
-
-    function createSearchResultBadge() {
-        const badge = document.createElement('span');
-        badge.classList.add(BADGE_CLASS);
-        badge.textContent = 'USES AI';
+        badge.appendChild(createWarningIcon());
+        badge.appendChild(document.createTextNode('USES AI'));
         return badge;
     }
 
     function createWishlistBadge() {
         const badge = document.createElement('span');
         badge.classList.add(BADGE_CLASS, 'wishlist-badge');
-        badge.textContent = 'USES AI';
+        badge.appendChild(createWarningIcon());
+        badge.appendChild(document.createTextNode('USES AI'));
         return badge;
     }
 
@@ -327,6 +315,14 @@
         }
     }
 
+    function placeCollapseFlagBadge(root) {
+        // Steam's collapsible flag (icon-only until the row is hovered) needs both ds_flagged
+        // and ds_collapse_flag on the container; plain rows may lack ds_flagged, so ensure both
+        // so our flag badge collapses like a native one.
+        root.classList.add('ds_flagged', 'ds_collapse_flag');
+        root.appendChild(createSpotlightBadge());
+    }
+
     // One descriptor per Steam tile surface: how to find its tiles, read the app ID, and badge it.
     // Order is priority: when surfaces overlap on one capsule (e.g. a ds_flagged spotlight wrapping a
     // modern capsule), the earlier entry wins. Supporting a new surface is a single new entry here.
@@ -341,7 +337,7 @@
             name: 'spotlight',
             scan: () => document.querySelectorAll(SELECTORS.dsFlagged),
             getAppId: (root) => extractAppId(root),
-            placeBadge: (root) => root.appendChild(createSpotlightBadge()),
+            placeBadge: (root) => placeCollapseFlagBadge(root),
         },
         {
             name: 'tab',
@@ -353,7 +349,7 @@
             name: 'search',
             scan: () => document.querySelectorAll(SELECTORS.searchResultRow),
             getAppId: (root) => extractAppId(root),
-            placeBadge: (root) => root.appendChild(createSearchResultBadge()),
+            placeBadge: (root) => placeCollapseFlagBadge(root),
         },
         {
             name: 'wishlist',
