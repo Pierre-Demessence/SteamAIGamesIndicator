@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      1.5
+// @version      1.6
 // @description  Add an "Uses AI" badge on Steam store game tiles.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
@@ -37,7 +37,8 @@
         dsFlagged: '.ds_flagged',
         tabItem: '.tab_item',
         searchResultRow: '.search_result_row',
-        wishlistInput: 'input[data-appid]'
+        wishlistInput: 'input[data-appid]',
+        wishlistItem: '[data-rfd-draggable-id^="WishlistItem-"]'
     };
 
     // State
@@ -317,6 +318,15 @@
         }
     }
 
+    function placeWishlistItemBadge(root) {
+        // Class names are hashed on the React wishlist, so anchor on the capsule <img> itself.
+        const imgContainer = root.querySelector('img')?.parentElement;
+        if (imgContainer) {
+            imgContainer.style.position = 'relative';
+            imgContainer.appendChild(createWishlistBadge());
+        }
+    }
+
     // One descriptor per Steam tile surface: how to find its tiles, read the app ID, and badge it.
     // Order is priority: when surfaces overlap on one capsule (e.g. a ds_flagged spotlight wrapping a
     // modern capsule), the earlier entry wins. Supporting a new surface is a single new entry here.
@@ -350,6 +360,12 @@
             scan: () => document.querySelectorAll(SELECTORS.wishlistInput),
             getAppId: (root) => root.dataset.appid,
             placeBadge: (root) => placeWishlistBadge(root),
+        },
+        {
+            name: 'wishlistItem',
+            scan: () => document.querySelectorAll(SELECTORS.wishlistItem),
+            getAppId: (root) => root.dataset.rfdDraggableId?.match(/WishlistItem-(\d+)/)?.[1] ?? null,
+            placeBadge: (root) => placeWishlistItemBadge(root),
         },
     ];
 
