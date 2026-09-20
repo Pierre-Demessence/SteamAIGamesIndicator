@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      2.0
+// @version      2.1
 // @description  Add an "Uses AI" badge on Steam store game tiles, and a "Hide items with AI disclosure" filter on search.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
@@ -38,7 +38,11 @@
         tabItem: '.tab_item',
         searchResultRow: '.search_result_row',
         wishlistInput: 'input[data-appid]',
-        wishlistItem: '[data-rfd-draggable-id^="WishlistItem-"]'
+        wishlistItem: '[data-rfd-draggable-id^="WishlistItem-"]',
+        saleCapsule: '[data-ds-appid].store_capsule, [data-ds-appid].sale_capsule',
+        homeSpotlight: '.home_area_spotlight[data-ds-appid]',
+        tabRow: '.tab_row_item[data-ds-appid]',
+        panelCapsule: '.Panel[data-ds-appid]:has(> img)'
     };
 
     // State
@@ -95,12 +99,12 @@
             .ds_flag:not(.${BADGE_CLASS}) ~ .ds_flag.${BADGE_CLASS} {
                 top: 35px;
             }
-            /* Tab item and wishlist badge: absolute corner overlay. */
+            /* Tab item and overlay (wishlist / home capsule) badge: absolute corner overlay. */
             .tab_item {
                 position: relative;
             }
             .tab_item > .${BADGE_CLASS},
-            .${BADGE_CLASS}.wishlist-badge {
+            .${BADGE_CLASS}.overlay-badge {
                 ${pillBase}
                 position: absolute;
                 top: 3px;
@@ -297,12 +301,28 @@
         return badge;
     }
 
-    function createWishlistBadge() {
+    // Overlay pill (our own icon + color) placed top-left over a capsule image. Used by the
+    // wishlist surfaces and the home-page capsules.
+    function createOverlayBadge() {
         const badge = document.createElement('span');
-        badge.classList.add(BADGE_CLASS, 'wishlist-badge');
+        badge.classList.add(BADGE_CLASS, 'overlay-badge');
         badge.appendChild(createWarningIcon());
         badge.appendChild(document.createTextNode('USES AI'));
         return badge;
+    }
+
+    // When a native Steam flag (e.g. ON WISHLIST) already sits on the capsule, stack our badge
+    // below it: pass the capsule `root` to detect a `.ds_flag`, and `loweredTop` = native flag
+    // top + 18px height + 5px gap.
+    function placeOverlayBadge(container, root, loweredTop) {
+        if (container instanceof HTMLImageElement) container = container.parentElement;
+        if (!container || container.querySelector(`:scope > .${BADGE_CLASS}.overlay-badge`)) return;
+        container.style.position = 'relative';
+        const badge = createOverlayBadge();
+        if (loweredTop != null && root?.querySelector('.ds_flag')) {
+            badge.style.top = `${loweredTop}px`;
+        }
+        container.appendChild(badge);
     }
 
     function placeWishlistBadge(input) {
@@ -310,20 +330,12 @@
         const panel = input.closest('[class*="Panel"]')
             ?? input.closest('[data-index]')
             ?? input.parentElement?.parentElement;
-        const imgContainer = panel?.querySelector('img')?.parentElement;
-        if (imgContainer) {
-            imgContainer.style.position = 'relative';
-            imgContainer.appendChild(createWishlistBadge());
-        }
+        placeOverlayBadge(panel?.querySelector('img')?.parentElement);
     }
 
     function placeWishlistItemBadge(root) {
         // Class names are hashed on the React wishlist, so anchor on the capsule <img> itself.
-        const imgContainer = root.querySelector('img')?.parentElement;
-        if (imgContainer) {
-            imgContainer.style.position = 'relative';
-            imgContainer.appendChild(createWishlistBadge());
-        }
+        placeOverlayBadge(root.querySelector('img')?.parentElement);
     }
 
     function placeCollapseFlagBadge(root) {
@@ -343,6 +355,33 @@
             scan: () => document.querySelectorAll(SELECTORS.decorators),
             getAppId: (root) => extractAppId(root.closest(SELECTORS.gameLink) ?? root.closest('[data-ds-appid]') ?? root),
             placeBadge: (root) => root.appendChild(createBadge()),
+        },
+        // Home-page capsules: overlay our own pill on the capsule image. Listed before
+        // 'spotlight' so flagged home capsules use the overlay (checkedTiles dedup skips
+        // the ds_flag pill, whose wishlist styling wins over ours on the home page).
+        {
+            name: 'saleCapsule',
+            scan: () => document.querySelectorAll(SELECTORS.saleCapsule),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => placeOverlayBadge(root.querySelector('.capsule_image_ctn') ?? root, root, 28),
+        },
+        {
+            name: 'homeSpotlight',
+            scan: () => document.querySelectorAll(SELECTORS.homeSpotlight),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => placeOverlayBadge(root.querySelector('.spotlight_img') ?? root, root, 41),
+        },
+        {
+            name: 'tabRow',
+            scan: () => document.querySelectorAll(SELECTORS.tabRow),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => placeOverlayBadge(root.querySelector('.capsule_image_ctn') ?? root, root, 28),
+        },
+        {
+            name: 'panelCapsule',
+            scan: () => document.querySelectorAll(SELECTORS.panelCapsule),
+            getAppId: (root) => extractAppId(root),
+            placeBadge: (root) => placeOverlayBadge(root, root, 28),
         },
         {
             name: 'spotlight',
@@ -473,7 +512,13 @@
 
     function processAllTiles() {
         for (const type of TILE_TYPES) {
-            for (const root of type.scan()) {
+            let roots;
+            try {
+                roots = type.scan();
+            } catch {
+                continue; // a bad/unsupported selector must not abort the other surfaces
+            }
+            for (const root of roots) {
                 processRoot(type, root);
             }
         }
