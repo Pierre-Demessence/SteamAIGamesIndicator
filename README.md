@@ -14,7 +14,9 @@ Displays a prominent banner at the top of individual game pages when a game has 
 
 ### 2. Steam AI Badge
 
-Adds "Uses AI" badges to game tiles throughout the Steam store.
+Adds "Uses AI" badges to game tiles throughout the Steam store. On the search page it also
+adds a "Hide items with AI disclosure" control to the "Narrow by preferences" filter block,
+letting you hide AI-disclosed games (the choice is remembered across sessions).
 
 ![Steam AI Badge Screenshot](./badge2.jpg)
 ![Steam AI Badge Screenshot](./badge1.jpg)

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Steam AI Badge
-// @version      1.6.2
-// @description  Add an "Uses AI" badge on Steam store game tiles.
+// @version      2.0
+// @description  Add an "Uses AI" badge on Steam store game tiles, and a "Hide items with AI disclosure" filter on search.
 // @author       Pierre Demessence
 // @source       https://github.com/Pierre-Demessence/SteamAIGamesIndicator
 // @updateURL    https://raw.githubusercontent.com/Pierre-Demessence/SteamAIGamesIndicator/refs/heads/main/steamAIBadge.user.js
@@ -52,6 +52,8 @@
     const fetchCache = new Map(); // appId -> { ai: boolean, ts: number }
     let saveTimer = null;
     let maxKnownAppId = 0; // highest app ID in the known-AI list; the list is complete up to here
+    let hideAiSearch = false; // search filter: hide rows disclosed as AI (persisted)
+    let searchResultsObserved = false; // guard: attach the results class observer only once
 
     // Inject styles once
     function injectStyles() {
@@ -114,6 +116,15 @@
                 ${pillBase}
                 height: 18px;
                 z-index: 5;
+            }
+            /* Search filter: hide AI-disclosed rows, mirroring Steam's own hide filters
+               (e.g. .search_results.hide_owned .ds_owned). Same (0,3,0) specificity; this
+               sheet is injected after Steam's so it wins ties. */
+            .search_results.hide_ai .tm-ai-row {
+                height: 0;
+                margin: 0;
+                border: none;
+                display: none;
             }
         `;
 
@@ -382,6 +393,8 @@
         }
         badgedRoots.add(root);
         type.placeBadge(root);
+        // Mark the search row so the "Hide items with AI disclosure" filter can hide it.
+        root.closest('.search_result_row')?.classList.add('tm-ai-row');
     }
 
     function processRoot(type, root) {
@@ -465,9 +478,83 @@
             }
         }
 
+        injectAiFilterControl();
+
         if (fetchQueue.length > 0 && !queueRunning) {
             runFetchQueue();
         }
+    }
+
+    // Reflect the current hide-AI state onto the search results container and our control.
+    function applyHideAiState() {
+        document.querySelector('#search_results')?.classList.toggle('hide_ai', hideAiSearch);
+        const row = document.getElementById('tm-hide-ai-row');
+        if (row) {
+            row.classList.toggle('checked', hideAiSearch);
+            row.querySelector('.tab_filter_control')?.classList.toggle('checked', hideAiSearch);
+        }
+    }
+
+    // Build a native-looking filter control that toggles the hide-AI state.
+    function createAiFilterControl() {
+        const row = document.createElement('div');
+        row.className = 'tab_filter_control_row';
+        row.id = 'tm-hide-ai-row';
+
+        const control = document.createElement('span');
+        control.setAttribute('role', 'button');
+        control.className = 'tab_filter_control tab_filter_control_include';
+
+        const labelContainer = document.createElement('span');
+        labelContainer.className = 'tab_filter_label_container';
+
+        const checkbox = document.createElement('span');
+        checkbox.className = 'tab_filter_control_checkbox';
+
+        const label = document.createElement('span');
+        label.className = 'tab_filter_control_label';
+        label.textContent = 'Hide items with AI disclosure';
+
+        labelContainer.appendChild(checkbox);
+        labelContainer.appendChild(label);
+        control.appendChild(labelContainer);
+        row.appendChild(control);
+
+        // Handle the toggle ourselves; stop propagation so Steam's filter JS doesn't also react.
+        const toggle = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            hideAiSearch = !hideAiSearch;
+            GM_setValue('hideAiSearch', hideAiSearch);
+            applyHideAiState();
+        };
+        control.tabIndex = 0;
+        control.addEventListener('click', toggle);
+        control.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) toggle(e);
+        });
+
+        return row;
+    }
+
+    // Inject the control into the search "Narrow by preferences" block (search page only).
+    // Steam re-renders this block on AJAX updates, so re-inject and re-apply state each pass.
+    function injectAiFilterControl() {
+        const block = document.querySelector('#client_filter .block_content');
+        if (block && !document.getElementById('tm-hide-ai-row')) {
+            block.appendChild(createAiFilterControl());
+        }
+
+        // Steam may rewrite #search_results' class without a childList change (e.g. toggling its
+        // own filters), which could drop our hide_ai class; re-apply it on any class change.
+        const results = document.querySelector('#search_results');
+        if (results && !searchResultsObserved) {
+            searchResultsObserved = true;
+            new MutationObserver(applyHideAiState)
+                .observe(results, { attributes: true, attributeFilter: ['class'] });
+        }
+
+        applyHideAiState();
     }
 
     // Debounce helper
@@ -484,6 +571,7 @@
         injectStyles();
         await loadKnownAppIds();
         await loadFetchCache();
+        hideAiSearch = await GM_getValue('hideAiSearch', false);
 
         // Flush any pending (debounced) cache write before the page goes away
         window.addEventListener('pagehide', () => {
